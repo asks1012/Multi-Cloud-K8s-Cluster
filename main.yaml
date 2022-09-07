@@ -1,0 +1,43 @@
+- hosts: localhost
+  gather_facts: False
+  tasks:
+  - name: "Initializing terraform providers"
+    shell:
+      cmd: terraform init
+      chdir: ./terraform
+  - name: "Provisioning 1 AWS Instance , 1 Azure VM"
+    community.general.terraform:
+      project_path: ./terraform
+      state: present
+  - meta: refresh_inventory
+
+- hosts: all
+  gather_facts: False
+  tasks:
+  - name: "Waiting for SSH port"
+    wait_for_connection:
+
+- hosts: master_node
+  gather_facts: False
+  roles:
+  - configure-master
+  tasks:
+  - name: "Getting token from master"
+    shell: "kubeadm token create --print-join-command"
+    register: token
+  - add_host:
+      name: "token_for_worker"
+      link: "{{ token['stdout'] }}"
+
+- hosts: slave_nodes
+  gather_facts: False
+  roles:
+  - configure-slave
+  tasks:
+  - name: "Worker Nodes joining the cluster"
+    shell: "{{ hostvars['token_for_worker']['link'] }}"
+
+- hosts: master_node
+  gather_facts: False
+  roles:
+  - wordpress-mysql

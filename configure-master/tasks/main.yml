@@ -1,0 +1,118 @@
+---
+# tasks file for configure-master
+
+- name: "Turning off Swap"
+  command: "swapoff -a"
+
+- name: "Configuring k8s.conf file"
+  copy:
+    content: |
+      overlay
+      br_netfilter
+    dest: "/etc/modules-load.d/k8s.conf"
+
+- name: "Configuring Kernel Modules"
+  shell: |
+    modprobe overlay
+    modprobe br_netfilter
+
+- name: "Configuring sysctl params"
+  copy:
+    content: |
+      net.bridge.bridge-nf-call-iptables  = 1
+      net.bridge.bridge-nf-call-ip6tables = 1
+      net.ipv4.ip_forward                 = 1
+    dest: "/etc/sysctl.d/k8s.conf"
+
+- name: "Applying sysctl params"
+  shell: sudo sysctl --system
+
+- name: "Installing Docker"
+  package:
+    name: docker
+    state: present
+
+- name: "Creating docker directory"
+  file:
+    path: /etc/docker
+    state: directory
+
+- name: "Configuring cgroup driver for docker"
+  copy:
+    content: |
+      {
+        "exec-opts": ["native.cgroupdriver=systemd"]
+      }
+    dest: "/etc/docker/daemon.json"
+
+- name: "Enabling Docker service"
+  service:
+    name: docker
+    enabled: yes
+
+- name: "Reloading systemd files"
+  shell: "sudo systemctl daemon-reload"
+
+- name: "Restarting Docker service"
+  service:
+    name: docker
+    state: restarted
+
+- name: "Configuring YUM repository for kubernetes"
+  yum_repository:
+    name: kubernetes
+    baseurl: https://packages.cloud.google.com/yum/repos/kubernetes-el7-x86_64
+    enabled: yes
+    gpgcheck: yes
+    gpgkey: https://packages.cloud.google.com/yum/doc/yum-key.gpg https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
+    exclude:
+    - kubelet
+    - kubeadm
+    - kubectl
+    description: yum repo for kubernetes
+
+- name: "Disabling SELinux"
+  shell: |
+    sudo setenforce 0
+    sudo sed -i 's/^SELINUX=enforcing$/SELINUX=permissive/' /etc/selinux/config
+
+- name: "Installing kubeadm, kubelet, kubectl"
+  yum:
+    name: "{{ item }}"
+    state: present
+    disable_excludes: kubernetes
+  loop:
+  - kubelet
+  - kubeadm
+  - kubectl
+
+- name: "Starting and Enabling kubelet"
+  service:
+    name: kubelet
+    state: started
+    enabled: yes
+
+- name: "Downloading required Docker Images"
+  command: kubeadm config images pull
+  ignore_errors: true
+
+- name: "Installing iproute-tc in Master"
+  package:
+    name: iproute-tc
+    state: present
+
+- name: "Starting the Master"
+  command: "kubeadm init --control-plane-endpoint={{ hostvars[inventory_hostname]['inventory_hostname'] }}:6443 --pod-network-cidr=10.244.0.0/16 --ignore-preflight-errors=NumCPU --ignore-preflight-errors=Mem"
+
+- name: "Kubeconfig"
+  shell: |
+    mkdir -p $HOME/.kube
+    sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+    sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
+- name: "Applying Flannel"
+  shell: kubectl apply  -f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml
+
+# - name: "Waiting 60sec for kubernetes pods to start"
+#   wait_for:
+#       timeout: 60

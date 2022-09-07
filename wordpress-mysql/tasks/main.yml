@@ -1,0 +1,39 @@
+---
+# tasks file for wordpress-mysql
+
+- name: "Creating directory for storing kubernetes files"
+  file:
+    path: /home/ec2-user/k8s-files
+    state: directory
+
+- name: "Copying Kubernetes Files"
+  copy:
+    src: ./
+    dest: /home/ec2-user/k8s-files
+
+- name: "Applying Kubernetes Files"
+  shell: kubectl apply -f /home/ec2-user/k8s-files/
+
+- name: "Getting ClusterIP of MySQL"
+  shell: "kubectl describe svc wordpress-mysql | grep IP: | tr -s ' '"
+  register: ip
+
+- name: "Extracting ClusterIP"
+  set_fact:
+    clusterIP: "{{ ip['stdout_lines'][0] | regex_replace('^IP: ', '') }}"
+
+- name: "Copying wordpress yml file"
+  template:
+    src: wordpress-deployment.yaml
+    dest: /home/ec2-user/k8s-files
+
+- name: "Applying wordpress yml file"
+  shell: kubectl apply -f /home/ec2-user/k8s-files/wordpress-deployment.yaml
+
+- name: "Getting Port Number of Wordpress"
+  shell: kubectl get svc wordpress
+  register: NodePort
+
+- name: "Displaying Port Number of Wordpress"
+  debug:
+    var: NodePort['stdout_lines']

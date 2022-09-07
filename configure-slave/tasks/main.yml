@@ -1,0 +1,98 @@
+---
+# tasks file for configure-slave
+
+- name: "Turning off Swap"
+  shell: "swapoff -a"
+
+- name: "Updating apt packages"
+  shell: apt-get update
+
+- name: "Configuring k8s.conf file"
+  copy:
+    content: |
+      overlay
+      br_netfilter
+    dest: "/etc/modules-load.d/k8s.conf"
+
+- name: "Configuring Kernel Modules"
+  shell: |
+    modprobe overlay
+    modprobe br_netfilter
+
+- name: "Configuring sysctl params"
+  copy:
+    content: |
+      net.bridge.bridge-nf-call-iptables  = 1
+      net.bridge.bridge-nf-call-ip6tables = 1
+      net.ipv4.ip_forward                 = 1
+    dest: "/etc/sysctl.d/k8s.conf"
+
+- name: "Applying sysctl params"
+  shell: sudo sysctl --system
+
+- name: "Installing Docker"
+  apt:
+    name: "docker.io"
+    state: present
+
+- name: "Creating docker directory"
+  file:
+    path: /etc/docker
+    state: directory
+
+- name: "Configuring cgroup driver for docker"
+  copy:
+    content: |
+      {
+        "exec-opts": ["native.cgroupdriver=systemd"]
+      }
+    dest: "/etc/docker/daemon.json"
+
+- name: "Enabling Docker service"
+  service:
+    name: docker
+    enabled: yes
+
+- name: "Reloading systemd files"
+  shell: "sudo systemctl daemon-reload"
+
+- name: "Restarting Docker service"
+  service:
+    name: docker
+    state: restarted
+
+- name: "Installing apt-transport-https and curl"
+  apt:
+    pkg:
+    - apt-transport-https
+    - curl
+    state: present
+
+- name: "Configuring Kubernetes Repository"
+  shell: curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
+
+- name: "Configuring Kubernetes Repository"
+  copy:
+    content: deb https://apt.kubernetes.io/ kubernetes-xenial main
+    dest: /etc/apt/sources.list.d/kubernetes.list
+
+- name: "Updating apt packages"
+  shell: apt-get update
+
+- name: "Installing kubeadm, kubelet, kubectl"
+  apt:
+    pkg:
+    - kubelet
+    - kubeadm
+    - kubectl
+    state: present
+
+- name: "Starting and Enabling kubelet"
+  service:
+    name: kubelet
+    state: started
+    enabled: yes
+
+- name: "Downloading required Docker Images"
+  command: kubeadm config images pull
+  ignore_errors: true

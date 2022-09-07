@@ -1,0 +1,6 @@
+[master_node]
+3.110.118.205 ansible_ssh_private_key_file=/home/sagar/Downloads/aws_key.pem ansible_ssh_user=ec2-user
+
+[slave_nodes]
+20.204.145.99 ansible_ssh_private_key_file=/home/sagar/.ssh/id_rsa ansible_ssh_user=adminuser
+
